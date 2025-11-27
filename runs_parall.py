@@ -24,24 +24,17 @@ FUNCTIONS = [
 ]
 lib = ['x','x^2','x^3','x^4','exp','log','sqrt','tanh','sin','abs']
 
-# n_samples_list = [100, 200, 400, 500]
-# noise_levels = [0, 0.05, 0.1, 0.3, 0.5]
-# #gap_ranges = [None, [-1, 1], [0.5, 1]]
-# gap_ranges = [None]
-
-# x_true = np.linspace(-2, 2, 500)
-
-# width_list = [[5, 1],[4, 4, 4, 1],[15, 1],[5, 5, 1],[10, 6, 3, 1]]
-# k_list = [3, 5]
-# grid_list = [3, 4, 5]
-
-n_samples_list = [100, 200]
-noise_levels = [0, 0.05]
+n_samples_list = [100, 200, 400, 500]
+noise_levels = [0, 0.05, 0.1, 0.3, 0.5]
+#gap_ranges = [None, [-1, 1], [0.5, 1]]
 gap_ranges = [None]
 
-width_list = [[5, 1],[4, 4, 4, 1]]
-k_list = [3, 5]
-grid_list = [3, 4]
+
+width_list = [[5, 1],[4, 4, 4, 1],[15, 1],[5, 5, 1],[10, 6, 3, 1]]
+k_list = [1, 2, 3, 5]
+grid_list = [3, 5]
+
+
 
 # === Новые настройки ===
 n_repeats = 5  # Количество запусков на одну комбинацию
