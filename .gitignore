@@ -208,5 +208,5 @@ __marimo__/
 figures
 model
 datasets
-results
+results*
 !results/.gap
