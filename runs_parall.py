@@ -6,6 +6,7 @@ import torch
 from kan.utils import create_dataset_from_data, ex_round
 from joblib import Parallel, delayed
 from tqdm import tqdm
+from logs import *
 
 
 # === Функции ===
@@ -24,20 +25,29 @@ FUNCTIONS = [
 ]
 lib = ['x','x^2','x^3','x^4','exp','log','sqrt','tanh','sin','abs']
 
-n_samples_list = [100, 200, 400, 500]
-noise_levels = [0, 0.05, 0.1, 0.3, 0.5]
+# n_samples_list = [100, 200, 400, 500]
+# noise_levels = [0, 0.05, 0.1, 0.3, 0.5]
+# #gap_ranges = [None, [-1, 1], [0.5, 1]]
+# gap_ranges = [None]
+
+
+# width_list = [[5, 1],[4, 4, 4, 1],[15, 1],[5, 5, 1],[10, 6, 3, 1]]
+# k_list = [1, 2, 3, 5]
+# grid_list = [3, 5]
+
+n_samples_list = [100]
+noise_levels = [0, 0.05]
 #gap_ranges = [None, [-1, 1], [0.5, 1]]
 gap_ranges = [None]
 
 
-width_list = [[5, 1],[4, 4, 4, 1],[15, 1],[5, 5, 1],[10, 6, 3, 1]]
-k_list = [1, 2, 3, 5]
-grid_list = [3, 5]
-
+width_list = [[5, 1],[4, 4, 4, 1]]
+k_list = [1]
+grid_list = [3]
 
 
 # === Новые настройки ===
-n_repeats = 5  # Количество запусков на одну комбинацию
+n_repeats = 2  # Количество запусков на одну комбинацию
 x_true = np.linspace(-2, 2, 500)
 
 # === Вспомогательные утилиты ===
@@ -107,7 +117,7 @@ def run_single_experiment(args):
     def dummy_saveckpt(self, path): pass
     kan.KAN.log_history = dummy_log_history
     kan.KAN.saveckpt = dummy_saveckpt
-
+    
     seed = np.random.randint(0, 2**30)
     gap_str = f"gap{gap_range[0]}_{gap_range[1]}" if gap_range else "nogap"
     width_current = [n_var] + width_tail
@@ -238,7 +248,7 @@ n_jobs = 12
 
 for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
     print(f"\n🚀 Запуск экспериментов для функции: {id_name}")
-
+    v_log(f'Функция {id_name} начата')
     # Генерация всех задач
     tasks = []
     for gap_range in gap_ranges:
@@ -261,17 +271,20 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
     results = Parallel(n_jobs=n_jobs)(
         delayed(run_single_experiment)(task) for task in tqdm(tasks, desc=f"Прогресс {id_name}", total=total)
     )
+    v_log(f'{id_name} результаты вернулись. Количество прогонов: {len(results)}')
     # results = []
     # for task in tqdm(tasks[0:10], desc=f"Отладка {id_name}", total=len(tasks[0:10])):
     #     result = run_single_experiment(task)  # Здесь поймается любая ошибка
     #     results.append(result)
     # Фильтрация и сборка DataFrame
     rows = [r for r in results if r is not None]
-
+    v_log(f'{id_name} Фильтрация на Nan завершена. Осталовь строк: {len(rows)}')
     df_func = pd.DataFrame(rows, columns=all_columns)
+    
 
     output_file = f"results/results_{id_name}.csv"
     df_func.to_csv(output_file, index=False, sep=';')
     print(f"✅ Сохранено: {output_file} ({len(df_func)} экспериментов из {total})")
+    v_log(f'{id_name} Сохранена. {output_file} ({len(df_func)} экспериментов из {total})')
 
 print("Все функции обработаны!")

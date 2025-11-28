@@ -210,3 +210,4 @@ model
 datasets
 results*
 !results/.gap
+logs
