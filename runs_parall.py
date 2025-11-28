@@ -5,8 +5,10 @@ import torch
 #from kan import KAN
 from kan.utils import create_dataset_from_data, ex_round
 from joblib import Parallel, delayed
-from tqdm import tqdm
 from logs import *
+from save import *
+import math
+from tqdm import tqdm
 
 
 # === Функции ===
@@ -47,7 +49,7 @@ grid_list = [3]
 
 
 # === Новые настройки ===
-n_repeats = 2  # Количество запусков на одну комбинацию
+n_repeats = 5  # Количество запусков на одну комбинацию
 x_true = np.linspace(-2, 2, 500)
 
 # === Вспомогательные утилиты ===
@@ -243,13 +245,16 @@ for stage in stages:
     ]
 all_columns = base_cols + loss_cols + metric_cols
 
-# === Основной цикл по функциям ===
+
 n_jobs = 12
+BATCH_SIZE = 100
 
 for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
     print(f"\n🚀 Запуск экспериментов для функции: {id_name}")
     v_log(f'Функция {id_name} начата')
-    # Генерация всех задач
+
+
+    # Генерация всех задач (как раньше)
     tasks = []
     for gap_range in gap_ranges:
         for n_samples in n_samples_list:
@@ -259,32 +264,62 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
                         for grid in grid_list:
                             for i in range(n_repeats):
                                 tasks.append((
-                                    func, n_var, func_idx, id_name,
-                                    gap_range, n_samples, noise_level,
-                                    width, k, grid
-                                ))
+                    func, n_var, func_idx, id_name,
+                    gap_range, n_samples, noise_level,
+                    width, k, grid
+                ))
 
     total = len(tasks)
     print(f"Всего задач для {id_name}: {total}")
+    n_batches = math.ceil(total / BATCH_SIZE)
+    print(f"Разбито на {n_batches} пачек по {BATCH_SIZE} задач")
 
-    # Оборачиваем задачи в tqdm для отображения прогресса
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(run_single_experiment)(task) for task in tqdm(tasks, desc=f"Прогресс {id_name}", total=total)
-    )
-    v_log(f'{id_name} результаты вернулись. Количество прогонов: {len(results)}')
-    # results = []
-    # for task in tqdm(tasks[0:10], desc=f"Отладка {id_name}", total=len(tasks[0:10])):
-    #     result = run_single_experiment(task)  # Здесь поймается любая ошибка
-    #     results.append(result)
-    # Фильтрация и сборка DataFrame
-    rows = [r for r in results if r is not None]
-    v_log(f'{id_name} Фильтрация на Nan завершена. Осталовь строк: {len(rows)}')
-    df_func = pd.DataFrame(rows, columns=all_columns)
-    
+    # Обработка пачками (без накопления)
+    for batch_idx in range(n_batches):
+        start_idx = batch_idx * BATCH_SIZE
+        end_idx = min(start_idx + BATCH_SIZE, total)
+        batch_tasks = tasks[start_idx:end_idx]
+        batch_num = batch_idx + 1
+        batch_total = len(batch_tasks)
 
-    output_file = f"results/results_{id_name}.csv"
-    df_func.to_csv(output_file, index=False, sep=';')
-    print(f"✅ Сохранено: {output_file} ({len(df_func)} экспериментов из {total})")
-    v_log(f'{id_name} Сохранена. {output_file} ({len(df_func)} экспериментов из {total})')
+        print(f"Обработка пачки {batch_num}/{n_batches} ({batch_total} задач)")
+
+
+        # Параллельный запуск пачки
+        batch_results = Parallel(n_jobs=n_jobs)(
+            delayed(run_single_experiment)(task)
+            for task in tqdm(batch_tasks, desc=f"Пачка {batch_num} {id_name}", total=batch_total)
+        )
+        v_log(f'{id_name} Пачка {batch_num} завершена. Результат: {len(batch_results)} записей')
+
+
+        # Фильтрация None
+        batch_rows = [r for r in batch_results if r is not None]
+        v_log(f'{id_name} Пачка {batch_num} Фильтрация завершена. Строк: {len(batch_rows)}')
+
+
+        if not batch_rows:
+            print(f"⚠️ Пачка {batch_num}: нет валидных результатов")
+            v_log(f'{id_name} Пачка {batch_num}: нет данных для сохранения')
+            continue
+
+        # Сохранение пачки
+        batch_base_path = f"results/results_{id_name}_{batch_num}"
+        save_result = save_experiment_data(
+            rows=batch_rows,
+            base_path=batch_base_path,
+            protocol=4,
+            parquet_compression="snappy"
+        )
+        v_log(f'{id_name} Пачка {batch_num} сохранена: {save_result}')
+
+
+        # Сохранение CSV для пачки
+        # df_batch = pd.DataFrame(batch_rows)
+        # csv_file = f"results/results_{id_name}_{batch_num}.csv"
+        # df_batch.to_csv(csv_file, index=False, sep=';')
+        # print(f"✅ Сохранено: {csv_file} ({len(batch_rows)} экспериментов)")
+        # v_log(f'{id_name} Пачка {batch_num} CSV сохранён: {csv_file}')
+
 
 print("Все функции обработаны!")
