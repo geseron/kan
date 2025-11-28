@@ -5,6 +5,8 @@ import torch
 #from kan import KAN
 from kan.utils import create_dataset_from_data, ex_round
 from joblib import Parallel, delayed
+import multiprocessing
+import time
 from logs import *
 from save import *
 import math
@@ -215,7 +217,7 @@ def run_single_experiment(args):
     ]:
         for key in ['test_residuals', 'test_mse', 'test_mae', 'test_r2',
                     'true_residuals', 'true_mse', 'true_mae', 'true_r2']:
-            row[f'{key}_{stage_name}'] = stat_dict[key]
+            row[f'{key}_{stage_name}'] = float(stat_dict[key])
 
     return row
 
@@ -254,8 +256,8 @@ import math
 
 # Параметры
 MAX_RETRIES = 3
-TIMEOUT_SECONDS = 1000
-BATCH_SIZE = 100
+TIMEOUT_SECONDS = 200
+BATCH_SIZE = 36
 n_jobs = 12
 
 # Путь к папке с результатами
@@ -323,6 +325,10 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
                 v_log(f'{id_name} Пачка {batch_num} завершена за {attempt} попытку. Результат: {len(batch_results)} записей')
                 break  # Успех — выходим из цикла попыток
 
+            except multiprocessing.TimeoutError:
+            # Основной случай: таймаут joblib
+                print(f"!⚠️ Таймаут! Пачка {batch_num}, попытка {attempt}")
+                v_log(f'{id_name} Пачка {batch_num}, попытка {attempt} — TimeoutError')
             except TimeoutError:
                 print(f"⚠️ Таймаут! Пачка {batch_num}, попытка {attempt} не завершена за {TIMEOUT_SECONDS} сек")
                 v_log(f'{id_name} Пачка {batch_num}, попытка {attempt} прервана по таймауту')
