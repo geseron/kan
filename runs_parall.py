@@ -246,13 +246,32 @@ for stage in stages:
 all_columns = base_cols + loss_cols + metric_cols
 
 
-n_jobs = 12
+from joblib import Parallel, delayed, TimeoutError
+from tqdm import tqdm
+import time
+import os
+import math
+
+# Параметры
+MAX_RETRIES = 3
+TIMEOUT_SECONDS = 1000
 BATCH_SIZE = 100
+n_jobs = 12
+
+# Путь к папке с результатами
+RESULTS_DIR = "results"
+
+def is_batch_completed(id_name, batch_num):
+    """
+    Проверяет, выполнена ли пачка
+    """
+    parquet_path = f"{RESULTS_DIR}/results_{id_name}_{batch_num}.pkl"
+    return os.path.isfile(parquet_path)
+
 
 for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
     print(f"\n🚀 Запуск экспериментов для функции: {id_name}")
     v_log(f'Функция {id_name} начата')
-
 
     # Генерация всех задач (как раньше)
     tasks = []
@@ -274,7 +293,8 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
     n_batches = math.ceil(total / BATCH_SIZE)
     print(f"Разбито на {n_batches} пачек по {BATCH_SIZE} задач")
 
-    # Обработка пачками (без накопления)
+
+    # Обработка пачками
     for batch_idx in range(n_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = min(start_idx + BATCH_SIZE, total)
@@ -282,16 +302,44 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
         batch_num = batch_idx + 1
         batch_total = len(batch_tasks)
 
+        # Проверяем, выполнена ли эта пачка
+        if is_batch_completed(id_name, batch_num):
+            print(f"✅ Пачка {batch_num}/{n_batches} уже выполнена (файл существует). Пропускаем.")
+            v_log(f'{id_name} Пачка {batch_num} пропущена: файл уже есть')
+            continue
+
         print(f"Обработка пачки {batch_num}/{n_batches} ({batch_total} задач)")
 
 
-        # Параллельный запуск пачки
-        batch_results = Parallel(n_jobs=n_jobs)(
-            delayed(run_single_experiment)(task)
-            for task in tqdm(batch_tasks, desc=f"Пачка {batch_num} {id_name}", total=batch_total)
-        )
-        v_log(f'{id_name} Пачка {batch_num} завершена. Результат: {len(batch_results)} записей')
+        # Цикл попыток с перезапуском при таймауте
+        batch_results = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                print(f"!Попытка {attempt}/{MAX_RETRIES} для пачки {batch_num}")
+                batch_results = Parallel(n_jobs=n_jobs, timeout=TIMEOUT_SECONDS, verbose=5)(
+                    delayed(run_single_experiment)(task)
+                    for task in tqdm(batch_tasks, desc=f"Пачка {batch_num} {id_name}", total=batch_total)
+                )
+                v_log(f'{id_name} Пачка {batch_num} завершена за {attempt} попытку. Результат: {len(batch_results)} записей')
+                break  # Успех — выходим из цикла попыток
 
+            except TimeoutError:
+                print(f"⚠️ Таймаут! Пачка {batch_num}, попытка {attempt} не завершена за {TIMEOUT_SECONDS} сек")
+                v_log(f'{id_name} Пачка {batch_num}, попытка {attempt} прервана по таймауту')
+                if attempt < MAX_RETRIES:
+                    print(f"Перезапуск пачки {batch_num} (попытка {attempt + 1})...")
+                    time.sleep(5)  # Пауза перед повторной попыткой
+                else:
+                    print(f"❌ Все {MAX_RETRIES} попыток исчерпаны для пачки {batch_num}. Пропускаем.")
+                    v_log(f'{id_name} Пачка {batch_num}: все попытки неудачны, данных нет')
+                    batch_results = []  # Пустой результат для дальнейшей обработки
+
+
+        # Если результатов нет (все попытки провалились), пропускаем сохранение
+        if batch_results is None or not batch_results:
+            print(f"⚠️ Пачка {batch_num}: нет валидных результатов после {MAX_RETRIES} попыток")
+            v_log(f'{id_name} Пачка {batch_num}: нет данных для сохранения')
+            continue
 
         # Фильтрация None
         batch_rows = [r for r in batch_results if r is not None]
@@ -299,12 +347,12 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
 
 
         if not batch_rows:
-            print(f"⚠️ Пачка {batch_num}: нет валидных результатов")
-            v_log(f'{id_name} Пачка {batch_num}: нет данных для сохранения')
+            print(f"⚠️ Пачка {batch_num}: нет валидных результатов после фильтрации")
+            v_log(f'{id_name} Пачка {batch_num}: нет данных для сохранения после фильтрации')
             continue
 
         # Сохранение пачки
-        batch_base_path = f"results/results_{id_name}_{batch_num}"
+        batch_base_path = f"{RESULTS_DIR}/results_{id_name}_{batch_num}"
         save_result = save_experiment_data(
             rows=batch_rows,
             base_path=batch_base_path,
@@ -313,13 +361,11 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
         )
         v_log(f'{id_name} Пачка {batch_num} сохранена: {save_result}')
 
-
-        # Сохранение CSV для пачки
+        # Опционально: сохранение CSV
         # df_batch = pd.DataFrame(batch_rows)
-        # csv_file = f"results/results_{id_name}_{batch_num}.csv"
+        # csv_file = f"{RESULTS_DIR}/results_{id_name}_{batch_num}.csv"
         # df_batch.to_csv(csv_file, index=False, sep=';')
         # print(f"✅ Сохранено: {csv_file} ({len(batch_rows)} экспериментов)")
         # v_log(f'{id_name} Пачка {batch_num} CSV сохранён: {csv_file}')
-
 
 print("Все функции обработаны!")
