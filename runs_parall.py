@@ -217,7 +217,7 @@ def run_single_experiment(args):
     ]:
         for key in ['test_residuals', 'test_mse', 'test_mae', 'test_r2',
                     'true_residuals', 'true_mse', 'true_mae', 'true_r2']:
-            row[f'{key}_{stage_name}'] = float(stat_dict[key])
+            row[f'{key}_{stage_name}'] = stat_dict[key]
 
     return row
 
@@ -248,7 +248,7 @@ for stage in stages:
 all_columns = base_cols + loss_cols + metric_cols
 
 
-from joblib import Parallel, delayed, TimeoutError
+from joblib import Parallel, delayed
 from tqdm import tqdm
 import time
 import os
@@ -329,16 +329,13 @@ for func_idx, (func, n_var, name, id_name) in enumerate(FUNCTIONS):
             # Основной случай: таймаут joblib
                 print(f"!⚠️ Таймаут! Пачка {batch_num}, попытка {attempt}")
                 v_log(f'{id_name} Пачка {batch_num}, попытка {attempt} — TimeoutError')
-            except TimeoutError:
-                print(f"⚠️ Таймаут! Пачка {batch_num}, попытка {attempt} не завершена за {TIMEOUT_SECONDS} сек")
-                v_log(f'{id_name} Пачка {batch_num}, попытка {attempt} прервана по таймауту')
                 if attempt < MAX_RETRIES:
                     print(f"Перезапуск пачки {batch_num} (попытка {attempt + 1})...")
-                    time.sleep(5)  # Пауза перед повторной попыткой
                 else:
                     print(f"❌ Все {MAX_RETRIES} попыток исчерпаны для пачки {batch_num}. Пропускаем.")
                     v_log(f'{id_name} Пачка {batch_num}: все попытки неудачны, данных нет')
                     batch_results = []  # Пустой результат для дальнейшей обработки
+
 
 
         # Если результатов нет (все попытки провалились), пропускаем сохранение
